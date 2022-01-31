@@ -3,7 +3,6 @@ import requests
 import re
 
 
-
 def make_request(url):
     response = requests.get(url)
 
@@ -17,7 +16,8 @@ def get_links(response):
 
     for link in links:
         if drive_pattern in link['href']:
-            print(link['href'])
+            match = re.search(rf"{re.escape(drive_pattern)}(.*)",link['href'])
+            print(match.group(1))
             
         
 
