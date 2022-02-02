@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 import requests
 import re
+import index
 
 
 def make_request(url):
@@ -17,7 +18,7 @@ def get_links(response):
     for link in links:
         if drive_pattern in link['href']:
             match = re.search(rf"{re.escape(drive_pattern)}(.*)",link['href'])
-            print(match.group(1))
+            index.main(match.group(1))
             
         
 
