@@ -7,38 +7,41 @@ from openpecha.core.layer import InitialCreationEnum, Layer, LayerEnum, PechaMet
 from openpecha.core.pecha import OpenPechaFS 
 from openpecha.core.annotation import Page, Span
 from openpecha.core.ids import get_pecha_id
-from openpecha import github_utils
+from openpecha import github_utils,config
 from uuid import uuid4
 from datetime import datetime
 
 url = 'https://drive.google.com/uc?id={id}'
 zipped_dir="temp/temp.zip"
 par_dir = "temp"
-extracted_dir = "/extracted"
+extracted_dir = "temp/extracted"
 vol_no_name_map={}
 vol = 1
 
 
 def download_drive(id):
-    subprocess.run(f"mkdir {par_dir} && mkdir {par_dir}/{extracted_dir}",shell=True)
+    subprocess.run(f"mkdir {par_dir} && mkdir {extracted_dir}",shell=True)
     gdown.download(url.format(id=id), f"{zipped_dir}", quiet=False)
-    subprocess.run(f"unzip {zipped_dir} -d '{par_dir}/{extracted_dir}'",shell=True)
+    subprocess.run(f"unzip {zipped_dir} -d {extracted_dir}",shell=True)
     delete_unwanted_files()
 
 
 def delete_unwanted_files():
-    subprocess.run(f"rm -rf {par_dir}/{extracted_dir}/__MACOSX",shell=True)
+    subprocess.run(f"rm -rf {extracted_dir}/__MACOSX",shell=True)
     for dirpath,dirs,_ in sorted(os.walk(par_dir)):
         if "RTF" in dirs:
             subprocess.run(f"rm -rf '{dirpath}/RTF'",shell=True)
 
 
 def parse_file():
+    global zipped_dir
     pecha_id = get_pecha_id()
-    pecha_name = os.listdir(f"{par_dir}/{extracted_dir}")[0]
+    pecha_name = os.listdir(f"{extracted_dir}")[0]
+    subprocess.run(f"mv {zipped_dir} '{par_dir}/{pecha_name}.zip'",shell=True)
+    zipped_dir=f"{par_dir}/{pecha_name}.zip"
     base_text = ''
     i=1
-    for dirpath,_,filenames in sorted(os.walk(f"{par_dir}/{extracted_dir}")):
+    for dirpath,_,filenames in sorted(os.walk(f"{extracted_dir}")):
         if filenames and os.path.basename(dirpath) !=pecha_name:
             file_name = get_file_name(dirpath)
             if len(filenames) != 1:      
@@ -56,7 +59,7 @@ def parse_file():
 
 
 def create_meta(pecha_id):
-    opf_path=f"./opfs/{pecha_id}/{pecha_id}.opf"
+    opf_path=f"{config.PECHAS_PATH}/{pecha_id}/{pecha_id}.opf"
     opf= OpenPechaFS(opf_path=opf_path)
 
     meta = get_meta()    
@@ -99,7 +102,7 @@ def get_base_text(path):
 def create_opf(base_text,file_name,pecha_id):
     global vol
 
-    opf_path=f"./opfs/{pecha_id}/{pecha_id}.opf"
+    opf_path=f"{config.PECHAS_PATH}/{pecha_id}/{pecha_id}.opf"
     opf = OpenPechaFS(opf_path=opf_path)
     new_filename = str("{:0>3d}".format(int(vol)))
     vol_no_name_map.update({f"v{new_filename}":f"{file_name}"})
@@ -166,21 +169,18 @@ def format_text(base_text):
 
 
 def publish_opf(pecha_id):
-    pecha_path = f"./opfs/{pecha_id}"
+    pecha_path = f"{config.PECHAS_PATH}/{pecha_id}"
     assest_path =[f"{zipped_dir}"]
 
     github_utils.github_publish(
     pecha_path,
-    message="initial commit",
     not_includes=[],
-    layers=[],
-    token='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'
+    message="initial commit"
     )
 
     github_utils.create_release(
     repo_name=pecha_id,
     asset_paths=assest_path,
-    token='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'
     )
 
 
