@@ -9,6 +9,7 @@ from openpecha.core.layer import InitialCreationEnum, Layer, LayerEnum, PechaMet
 from openpecha.core.pecha import OpenPechaFS 
 from openpecha.core.annotation import Page, Span
 from openpecha.core.ids import get_pecha_id
+from openpecha import github_utils
 from uuid import uuid4
 from datetime import datetime
 
@@ -21,16 +22,25 @@ vol = 1
 
 def download_drive(id):
     gdown.download(url.format(id=id), output, quiet=False)
-    subprocess.run(f"unzip {output} -d {par_dir}",shell=True)
+    """ subprocess.run(f"unzip {output} -d {par_dir}",shell=True)
+    delete_unwanted_files() """
+
+def delete_unwanted_files():
     subprocess.run(f"rm -rf {output}",shell=True)
     subprocess.run(f"rm -rf {par_dir}/__MACOSX",shell=True)
-
+    for dirpath,dirs,filenames in sorted(os.walk(par_dir)):
+        if "RTF" in dirs:
+            subprocess.run(f"rm -rf '{dirpath}/RTF'",shell=True)
 
 def parse_file(dir):
     pecha_id = get_pecha_id()
     pecha_name = os.listdir(dir)[0]
     base_text = ''
-    for dirpath,_,filenames in sorted(os.walk(dir)):
+    i=1
+    for dirpath,dirs,filenames in sorted(os.walk(dir)):
+    
+        if "RTF" in dirs:
+            subprocess.run(f"rm -rf '{dirpath}/RTF'",shell=True)
         if filenames and os.path.basename(dirpath) !=pecha_name:
             filename = get_file_name(dirpath)
             if len(filenames) != 1:      
@@ -40,6 +50,7 @@ def parse_file(dir):
             else:
                 path = os.path.join(dirpath,filenames[0])
                 base_text = get_base_text(path)
+            print(i,filename)    
             create_opf(base_text,filename,pecha_id) 
             base_text = ''
     create_meta(pecha_id)
@@ -72,7 +83,7 @@ def get_file_name(dirpath):
         
     path =  path.replace("  ","_")
 
-    return path.replace(r"TENGYUR (Tibetan Letters)/","")
+    return path.replace(r"KANGYUR (Tibetan Letters/","")
     
 def get_base_text(path):
     try:
@@ -152,13 +163,28 @@ def format_text(base_text):
 
     return bases
 
-def main(drive_id):
-    #download_drive(drive_id)
-    parse_file(par_dir)
+def publish_opf():
+    pecha_path = "./opfs/PBFAB4125"
+    assest_path =[output]
 
+    github_utils.github_publish(pecha_path,
+    message="initial commit",
+    not_includes=[],
+        layers=[],
+        org="Openpecha",
+        token='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'
+    )
+
+    github_utils.create_release(repo_name='PBFAB4125',asset_paths=assest_path,org="OpenPecha",token='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')
+
+
+def main(drive_id):
+    download_drive(drive_id)
+    #parse_file(par_dir)
+    #publish_opf()
 
 if __name__ == "__main__":
-    main('10qcUAnT-C0X_sSWcRe7f48VBagv4G8eR')
+    main('1RSsR-IPNI_FO_wT82pJO5sfaZSoEl38e')
 
 
 
