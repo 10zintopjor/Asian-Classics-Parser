@@ -1,10 +1,8 @@
 from email.mime import base
-from fileinput import filename
 import gdown
 import subprocess
 import os
 import re
-import chardet
 from openpecha.core.layer import InitialCreationEnum, Layer, LayerEnum, PechaMetaData
 from openpecha.core.pecha import OpenPechaFS 
 from openpecha.core.annotation import Page, Span
@@ -14,35 +12,35 @@ from uuid import uuid4
 from datetime import datetime
 
 url = 'https://drive.google.com/uc?id={id}'
-output="./temp/temp.zip"
+zipped_dir="temp/temp.zip"
 par_dir = "temp"
+extracted_dir = "/extracted"
 vol_no_name_map={}
 vol = 1
 
 
 def download_drive(id):
-    gdown.download(url.format(id=id), output, quiet=False)
-    """ subprocess.run(f"unzip {output} -d {par_dir}",shell=True)
-    delete_unwanted_files() """
+    subprocess.run(f"mkdir {par_dir} && mkdir {par_dir}/{extracted_dir}",shell=True)
+    gdown.download(url.format(id=id), f"{zipped_dir}", quiet=False)
+    subprocess.run(f"unzip {zipped_dir} -d '{par_dir}/{extracted_dir}'",shell=True)
+    delete_unwanted_files()
+
 
 def delete_unwanted_files():
-    subprocess.run(f"rm -rf {output}",shell=True)
-    subprocess.run(f"rm -rf {par_dir}/__MACOSX",shell=True)
-    for dirpath,dirs,filenames in sorted(os.walk(par_dir)):
+    subprocess.run(f"rm -rf {par_dir}/{extracted_dir}/__MACOSX",shell=True)
+    for dirpath,dirs,_ in sorted(os.walk(par_dir)):
         if "RTF" in dirs:
             subprocess.run(f"rm -rf '{dirpath}/RTF'",shell=True)
 
-def parse_file(dir):
+
+def parse_file():
     pecha_id = get_pecha_id()
-    pecha_name = os.listdir(dir)[0]
+    pecha_name = os.listdir(f"{par_dir}/{extracted_dir}")[0]
     base_text = ''
     i=1
-    for dirpath,dirs,filenames in sorted(os.walk(dir)):
-    
-        if "RTF" in dirs:
-            subprocess.run(f"rm -rf '{dirpath}/RTF'",shell=True)
+    for dirpath,_,filenames in sorted(os.walk(f"{par_dir}/{extracted_dir}")):
         if filenames and os.path.basename(dirpath) !=pecha_name:
-            filename = get_file_name(dirpath)
+            file_name = get_file_name(dirpath)
             if len(filenames) != 1:      
                 for file in sorted(filenames):
                     path = os.path.join(dirpath,file)
@@ -50,10 +48,12 @@ def parse_file(dir):
             else:
                 path = os.path.join(dirpath,filenames[0])
                 base_text = get_base_text(path)
-            print(i,filename)    
-            create_opf(base_text,filename,pecha_id) 
+            create_opf(base_text,file_name,pecha_id) 
             base_text = ''
     create_meta(pecha_id)
+
+    return pecha_id
+
 
 def create_meta(pecha_id):
     opf_path=f"./opfs/{pecha_id}/{pecha_id}.opf"
@@ -62,6 +62,7 @@ def create_meta(pecha_id):
     meta = get_meta()    
     opf._meta=meta
     opf.save_meta()
+
 
 def get_meta():
     instance_meta = PechaMetaData(
@@ -72,18 +73,19 @@ def get_meta():
 
     return instance_meta
 
+
 def get_file_name(dirpath):
     
     path = ""
-    while os.path.basename(dirpath) != par_dir:
-        if os.path.basename(dirpath) == "":
-            break
+    while os.path.basename(dirpath) != "extracted":
+        
         path=os.path.basename(dirpath)+"/"+path if path != "" else os.path.basename(dirpath)[0:20]
         dirpath=dirpath.replace(f"/{os.path.basename(dirpath)}","")
         
     path =  path.replace("  ","_")
 
-    return path.replace(r"KANGYUR (Tibetan Letters/","")
+    return path
+
     
 def get_base_text(path):
     try:
@@ -94,17 +96,16 @@ def get_base_text(path):
     return base_text[2:-1].replace("[DD]","")            
 
 
-def create_opf(base_text,filename,pecha_id):
+def create_opf(base_text,file_name,pecha_id):
     global vol
 
     opf_path=f"./opfs/{pecha_id}/{pecha_id}.opf"
     opf = OpenPechaFS(opf_path=opf_path)
     new_filename = str("{:0>3d}".format(int(vol)))
-    vol_no_name_map.update({f"v{new_filename}":f"{filename}"})
+    vol_no_name_map.update({f"v{new_filename}":f"{file_name}"})
     pagination_layer,base_text = get_pagination_layer(base_text)
     layers = {f"v{new_filename}": {LayerEnum.pagination: pagination_layer}}
     base = {f"v{new_filename}":base_text}
-
 
     opf.layers = layers
     opf.base = base
@@ -112,14 +113,13 @@ def create_opf(base_text,filename,pecha_id):
     opf.save_layers()
     vol+=1
 
+
 def get_pagination_layer(base_text):
     
-
     page_annotations = {}
     char_walker = 0
     formatted_text = format_text(base_text)
     base_text = ""
-
 
     for text in formatted_text:
         page_annotation, char_walker,text = get_page_annotation(text, char_walker)
@@ -131,6 +131,7 @@ def get_pagination_layer(base_text):
     )
 
     return pagination_layer,base_text
+
 
 def get_page_annotation(text,char_walker):
 
@@ -144,6 +145,7 @@ def get_page_annotation(text,char_walker):
 
     return page_annotation,(char_walker + len(text) + 2),text  
 
+
 def get_imgnum(text):
     text=text.replace("[?]","")
     img = re.search("(\[.*\])?(.*)",text,re.DOTALL)
@@ -153,35 +155,44 @@ def get_imgnum(text):
         img_alp = re.search("(\d*)(\D*)",imgnum).group(2)
         img_no = re.sub("^0+(?!$)", "", img_no)
         imgnum = int(img_no)*2-1 if img_alp == "A" else int(img_no)*2
-
     else:
         imgnum = img.group(1)
     return imgnum
 
+
 def format_text(base_text):
     bases = re.split("\n\n",base_text)
-
     return bases
 
-def publish_opf():
-    pecha_path = "./opfs/PBFAB4125"
-    assest_path =[output]
 
-    github_utils.github_publish(pecha_path,
+def publish_opf(pecha_id):
+    pecha_path = f"./opfs/{pecha_id}"
+    assest_path =[f"{zipped_dir}"]
+
+    github_utils.github_publish(
+    pecha_path,
     message="initial commit",
     not_includes=[],
-        layers=[],
-        org="Openpecha",
-        token='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'
+    layers=[],
+    token='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'
     )
 
-    github_utils.create_release(repo_name='PBFAB4125',asset_paths=assest_path,org="OpenPecha",token='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')
+    github_utils.create_release(
+    repo_name=pecha_id,
+    asset_paths=assest_path,
+    token='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'
+    )
+
+
+def delete_temp_files():
+    subprocess.run(f"rm -rf {par_dir}",shell=True)
 
 
 def main(drive_id):
     download_drive(drive_id)
-    #parse_file(par_dir)
-    #publish_opf()
+    pecha_id = parse_file()
+    publish_opf(pecha_id)
+    delete_temp_files()
 
 if __name__ == "__main__":
     main('1RSsR-IPNI_FO_wT82pJO5sfaZSoEl38e')
