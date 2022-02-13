@@ -15,7 +15,7 @@ url = 'https://drive.google.com/uc?id={id}'
 zipped_dir="temp/temp.zip"
 par_dir = "temp"
 extracted_dir = "temp/extracted"
-vol_no_name_map={}
+vol_no_title={}
 vol = 1
 
 
@@ -41,7 +41,6 @@ def parse_file():
     subprocess.run(f"mv {zipped_dir} '{par_dir}/{pecha_name}.zip'",shell=True)
     zipped_dir=f"{par_dir}/{pecha_name}.zip"
     base_text = ''
-    i=1
     for dirpath,_,filenames in sorted(os.walk(f"{extracted_dir}")):
         if filenames and os.path.basename(dirpath) != pecha_name:
             file_name = get_file_name(dirpath)
@@ -65,21 +64,34 @@ def create_meta_index(pecha_id,pecha_name,vol_to_parts):
     files = get_files(pecha_name)
     opf= OpenPechaFS(opf_path=opf_path)   
     index = Layer(annotation_type=LayerEnum.index, annotations=get_annotations(files,vol_to_parts,pecha_id))
-    meta = get_meta()
+    meta = get_meta(pecha_id,pecha_name)
     opf._index = index     
     opf._meta=meta
     opf.save_meta()
     opf.save_index()
 
 
-def get_meta():
+def get_meta(pecha_id,pecha_name):
     instance_meta = PechaMetaData(
+        id=pecha_id,
         initial_creation_type=InitialCreationEnum.input,
         created_at=datetime.now(),
         last_modified_at=datetime.now(),
-        source_metadata={"volume_no_to_title":vol_no_name_map})
+        source_metadata={
+            "title":pecha_name,
+            "volumes":get_source_meta(pecha_name)
+            })
 
     return instance_meta
+
+def get_source_meta(pecha_name):
+    meta= {}
+    for vol in vol_no_title:
+        meta.update({uuid4().hex:{
+            "title":vol_no_title[vol].replace(f"{pecha_name}/",""),
+            "base_file": vol
+        }})
+    return meta    
 
 
 def get_files(pecha_name):
@@ -149,7 +161,7 @@ def create_opf(base_text,file_name,pecha_id):
     opf_path=f"{config.PECHAS_PATH}/{pecha_id}/{pecha_id}.opf"
     opf = OpenPechaFS(opf_path=opf_path)
     new_filename = str("{:0>3d}".format(int(vol)))
-    vol_no_name_map.update({f"v{new_filename}":f"{file_name}"})
+    vol_no_title.update({f"v{new_filename}":f"{file_name}"})
     pagination_layer,base_text = get_pagination_layer(base_text)
     layers = {f"v{new_filename}": {LayerEnum.pagination: pagination_layer}}
     base = {f"v{new_filename}":base_text}
