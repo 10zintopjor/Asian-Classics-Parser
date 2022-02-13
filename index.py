@@ -88,8 +88,8 @@ def get_source_meta(pecha_name):
     meta= {}
     for vol in vol_no_title:
         meta.update({uuid4().hex:{
-            "title":vol_no_title[vol].replace(f"{pecha_name}/",""),
-            "base_file": vol
+            "title":vol_no_title[vol].replace(f"{pecha_name}/","".replace("/","_")),
+            "base_file": f"{vol}.txt"
         }})
     return meta    
 
