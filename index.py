@@ -1,4 +1,6 @@
+from __future__ import annotations
 from email.mime import base
+from tempfile import tempdir
 import gdown
 import subprocess
 import os
@@ -6,7 +8,7 @@ import re
 from openpecha.core.layer import InitialCreationEnum, Layer, LayerEnum, PechaMetaData
 from openpecha.core.pecha import OpenPechaFS 
 from openpecha.core.annotation import Page, Span
-from openpecha.core.ids import get_pecha_id
+from openpecha.core.ids import get_pecha_id,get_work_id
 from openpecha import github_utils,config
 from uuid import uuid4
 from datetime import datetime
@@ -60,18 +62,21 @@ def parse_file():
 
 
 def create_meta_index(pecha_id,pecha_name,vol_to_parts):
-    opf_path=f"{config.PECHAS_PATH}/{pecha_id}/{pecha_id}.opf"
+    #opf_path=f"{config.PECHAS_PATH}/{pecha_id}/{pecha_id}.opf"
+    opf_path=f"opfs/"
+    
     files = get_files(pecha_name)
     opf= OpenPechaFS(opf_path=opf_path)   
-    index = Layer(annotation_type=LayerEnum.index, annotations=get_annotations(files,vol_to_parts,pecha_id))
-    meta = get_meta(pecha_id,pecha_name)
+    annotations,id_maps,work_id_vol_maps = get_annotations(files,vol_to_parts,pecha_id)
+    index = Layer(annotation_type=LayerEnum.index, annotations=annotations)
+    meta = get_meta(pecha_id,pecha_name,id_maps,work_id_vol_maps)
     opf._index = index     
     opf._meta=meta
     opf.save_meta()
     opf.save_index()
 
 
-def get_meta(pecha_id,pecha_name):
+def get_meta(pecha_id,pecha_name,work_id_maps,work_id_vol_maps):
     instance_meta = PechaMetaData(
         id=pecha_id,
         initial_creation_type=InitialCreationEnum.input,
@@ -79,17 +84,23 @@ def get_meta(pecha_id,pecha_name):
         last_modified_at=datetime.now(),
         source_metadata={
             "title":pecha_name,
-            "volumes":get_source_meta(pecha_name)
-            })
+            "volumes":get_source_meta(pecha_name,work_id_maps),
+            "work_id_vol":work_id_vol_maps
+        })
 
     return instance_meta
 
-def get_source_meta(pecha_name):
+
+def get_source_meta(pecha_name,work_id_maps):
     meta= {}
+    print(work_id_maps)
+    print("***************************************")
+    print(vol_no_title)
     for vol in vol_no_title:
         meta.update({uuid4().hex:{
-            "title":vol_no_title[vol].replace(f"{pecha_name}/","".replace("/","_")),
-            "base_file": f"{vol}.txt"
+            "title":vol_no_title[vol].replace(f"{pecha_name}/","").replace("/","_"),
+            "base_file": f"{vol}.txt",
+            "work_id":work_id_maps[vol_no_title[vol]]
         }})
     return meta    
 
@@ -108,42 +119,45 @@ def get_files(pecha_name):
 
 def get_annotations(files,vol_to_parts,pecha_id):
     annotations={}
+    id_maps={}
+    work_id_vol_map={}
     for file in files:
-        parts,spans = get_parts(files[file],vol_to_parts,pecha_id)
-        annotation =  {uuid4().hex:{"work_id": f"{file}", "parts": parts,"span":spans}}
+        id = get_work_id()
+        work_id_vol_map.update({id:file})
+        parts,spans,id_map = get_parts(files[file],vol_to_parts,pecha_id)
+        id_maps.update(id_map)
+        annotation =  {uuid4().hex:{"work_id": id, "parts": parts,"span":spans}}
         annotations.update(annotation)
-
-    return annotations
+    return annotations,id_maps,work_id_vol_map
 
 
 def get_parts(sub_files,vol_to_parts,pecha_id):
     parts_data={}
     spans = []
-    
+    id_map={}
     for sub_file in sub_files:
         start_span,end_span = get_span(vol_to_parts[sub_file],pecha_id)
-        part_data = {uuid4().hex: {"work_id": f"{os.path.basename(sub_file)}", "span": [{"vol": vol_to_parts[sub_file],"start": start_span, "end": end_span}]}}
+        id = get_work_id()
+        part_data = {uuid4().hex: {"work_id": id, "span": [{"vol": vol_to_parts[sub_file],"start": start_span, "end": end_span}]}}
         parts_data.update(part_data)
+        id_map.update({sub_file.replace(extracted_dir+"/",""):id})
         spans.append({"vol": vol_to_parts[sub_file] ,"start": start_span, "end": end_span})
-
-    return parts_data,spans
+    return parts_data,spans,id_map
 
 
 def get_span(vol,pecha_id):
     vol = str("{:0>3d}".format(int(vol)))
     vol_path=f"{config.PECHAS_PATH}/{pecha_id}/{pecha_id}.opf/base/v{vol}.txt"
     with open(vol_path) as f:
-        base_text = f.read()
-    
+        base_text = f.read()   
     return 0,len(base_text)
 
 
 def get_file_name(dirpath):    
     path = ""
     while os.path.basename(dirpath) != "extracted":     
-        path=os.path.basename(dirpath)+"/"+path if path != "" else os.path.basename(dirpath)[0:20]
-        dirpath=dirpath.replace(f"/{os.path.basename(dirpath)}","")     
-    path =  path.replace("  ","_")
+        path=os.path.basename(dirpath)+"/"+path if path != "" else os.path.basename(dirpath)
+        dirpath=dirpath.replace(f"/{os.path.basename(dirpath)}","")         
     return path
 
     
@@ -185,7 +199,6 @@ def get_pagination_layer(base_text):
     pagination_layer = Layer(
         annotation_type=LayerEnum.pagination, annotations=page_annotations
     )
-
     return pagination_layer,base_text
 
 
@@ -244,7 +257,7 @@ def delete_temp_files():
 def main(drive_id):
     download_drive(drive_id)
     pecha_id = parse_file()
-    publish_opf(pecha_id)
+    #publish_opf(pecha_id)
     delete_temp_files()
 
 
