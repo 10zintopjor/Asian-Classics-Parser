@@ -1,5 +1,6 @@
 from __future__ import annotations
 from email.mime import base
+from fileinput import filename
 from tempfile import tempdir
 import gdown
 import subprocess
@@ -17,15 +18,14 @@ url = 'https://drive.google.com/uc?id={id}'
 zipped_dir="temp/temp.zip"
 par_dir = "temp"
 extracted_dir = "temp/extracted"
-vol_no_title={}
-vol = 1
+volumes = []
 
 
 def download_drive(id):
-    subprocess.run(f"mkdir {par_dir} && mkdir {extracted_dir}",shell=True)
-    gdown.download(url.format(id=id), f"{zipped_dir}", quiet=False)
+    #subprocess.run(f"mkdir {par_dir} && mkdir {extracted_dir}",shell=True)
+    #gdown.download(url.format(id=id), f"{zipped_dir}", quiet=False)
     subprocess.run(f"unzip {zipped_dir} -d {extracted_dir}",shell=True)
-    delete_unwanted_files()
+    #delete_unwanted_files()
 
 
 def delete_unwanted_files():
@@ -40,12 +40,13 @@ def parse_file():
     vol_to_parts = {}
     pecha_id = get_pecha_id()
     pecha_name = os.listdir(f"{extracted_dir}")[0]
-    subprocess.run(f"mv {zipped_dir} '{par_dir}/{pecha_name}.zip'",shell=True)
-    zipped_dir=f"{par_dir}/{pecha_name}.zip"
+    #subprocess.run(f"mv {zipped_dir} '{par_dir}/{pecha_name}.zip'",shell=True)
+    #zipped_dir=f"{par_dir}/{pecha_name}.zip"
     base_text = ''
     for dirpath,_,filenames in sorted(os.walk(f"{extracted_dir}")):
         if filenames and os.path.basename(dirpath) != pecha_name:
-            file_name = get_file_name(dirpath)
+            #file_name = get_file_name(dirpath)
+            file_name = os.path.basename(dirpath)
             if len(filenames) != 1:      
                 for file in sorted(filenames):
                     path = os.path.join(dirpath,file)
@@ -53,7 +54,7 @@ def parse_file():
             else:
                 path = os.path.join(dirpath,filenames[0])
                 base_text = get_base_text(path)
-            vol_to_parts.update({dirpath:vol})
+            vol_to_parts.update({dirpath:file_name})
             create_opf(base_text,file_name,pecha_id) 
             base_text = ''
     create_meta_index(pecha_id,pecha_name,vol_to_parts)
@@ -62,9 +63,7 @@ def parse_file():
 
 
 def create_meta_index(pecha_id,pecha_name,vol_to_parts):
-    #opf_path=f"{config.PECHAS_PATH}/{pecha_id}/{pecha_id}.opf"
-    opf_path=f"opfs/"
-    
+    opf_path=f"opfs/{pecha_id}/{pecha_id}.opf"
     files = get_files(pecha_name)
     opf= OpenPechaFS(opf_path=opf_path)   
     annotations,id_maps,work_id_vol_maps = get_annotations(files,vol_to_parts,pecha_id)
@@ -93,14 +92,11 @@ def get_meta(pecha_id,pecha_name,work_id_maps,work_id_vol_maps):
 
 def get_source_meta(pecha_name,work_id_maps):
     meta= {}
-    print(work_id_maps)
-    print("***************************************")
-    print(vol_no_title)
-    for vol in vol_no_title:
+    for vol in volumes:
         meta.update({uuid4().hex:{
-            "title":vol_no_title[vol].replace(f"{pecha_name}/","").replace("/","_"),
+            "title":vol.replace(f"{pecha_name}/","").replace("/","_"),
             "base_file": f"{vol}.txt",
-            "work_id":work_id_maps[vol_no_title[vol]]
+            "work_id":work_id_maps[vol]
         }})
     return meta    
 
@@ -140,14 +136,13 @@ def get_parts(sub_files,vol_to_parts,pecha_id):
         id = get_work_id()
         part_data = {uuid4().hex: {"work_id": id, "span": [{"vol": vol_to_parts[sub_file],"start": start_span, "end": end_span}]}}
         parts_data.update(part_data)
-        id_map.update({sub_file.replace(extracted_dir+"/",""):id})
+        id_map.update({os.path.basename(sub_file):id})
         spans.append({"vol": vol_to_parts[sub_file] ,"start": start_span, "end": end_span})
     return parts_data,spans,id_map
 
 
 def get_span(vol,pecha_id):
-    vol = str("{:0>3d}".format(int(vol)))
-    vol_path=f"{config.PECHAS_PATH}/{pecha_id}/{pecha_id}.opf/base/v{vol}.txt"
+    vol_path=f"opfs/{pecha_id}/{pecha_id}.opf/base/{vol}.txt"
     with open(vol_path) as f:
         base_text = f.read()   
     return 0,len(base_text)
@@ -171,19 +166,19 @@ def get_base_text(path):
 
 
 def create_opf(base_text,file_name,pecha_id):
-    global vol
-    opf_path=f"{config.PECHAS_PATH}/{pecha_id}/{pecha_id}.opf"
+    global volumes
+    volumes.append(file_name)
+    opf_path=f"opfs/{pecha_id}/{pecha_id}.opf"
     opf = OpenPechaFS(opf_path=opf_path)
-    new_filename = str("{:0>3d}".format(int(vol)))
-    vol_no_title.update({f"v{new_filename}":f"{file_name}"})
+    """ new_filename = str("{:0>3d}".format(int(vol)))
+    volumes.update({f"v{new_filename}":f"{file_name}"}) """
     pagination_layer,base_text = get_pagination_layer(base_text)
-    layers = {f"v{new_filename}": {LayerEnum.pagination: pagination_layer}}
-    base = {f"v{new_filename}":base_text}
+    layers = {f"{file_name}": {LayerEnum.pagination: pagination_layer}}
+    base = {f"{file_name}":base_text}
     opf.layers = layers
     opf.base = base
     opf.save_base()
     opf.save_layers()
-    vol+=1
 
 
 def get_pagination_layer(base_text):  
@@ -231,7 +226,20 @@ def get_imgnum(text):
 
 def format_text(base_text):
     bases = re.split("\n\n",base_text)
-    return bases
+    prev_imgnum = ""
+    new_base = []
+    for base in bases:
+        cur_imgnum = get_imgnum(base)
+        text = re.sub("\[.*.\]","",base)
+        text=text.strip()
+        if prev_imgnum == cur_imgnum:
+            prev_text = new_base.pop()
+            new_text = prev_text+"  "+text
+            new_base.append(new_text)
+        else:
+            new_base.append(base)
+        prev_imgnum = cur_imgnum
+    return new_base
 
 
 def publish_opf(pecha_id):
@@ -255,14 +263,14 @@ def delete_temp_files():
 
 
 def main(drive_id):
-    download_drive(drive_id)
+    #download_drive(drive_id)
     pecha_id = parse_file()
     #publish_opf(pecha_id)
-    delete_temp_files()
+    #delete_temp_files()
 
 
 if __name__ == "__main__":
-    main('1RSsR-IPNI_FO_wT82pJO5sfaZSoEl38e')
+    main('10qcUAnT-C0X_sSWcRe7f48VBagv4G8eR')
 
 
 
